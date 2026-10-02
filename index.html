@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Financial Independence</title>
+<link rel="icon" href="icon.png"><link rel="apple-touch-icon" href="icon.png">
 <style>
 :root{--bg:#eef2f7;--ink:#14213d;--mut:#64708a;--card:#fff;--ok:#0b7a75;--warn:#c77700;--bad:#d62839;--line:#dde3ec}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
@@ -33,12 +34,13 @@ const CATS=["Food","Transport","Essentials","Clothing","Education","Entertainmen
 const FOODS=["Matbakh / cheap meal","Chicken","Fish","Restaurant","Snack / Drink","Other"];
 const PRESETS=["You're spending a little too fast this month.","Slow down on the spending 😂","Check your budget before spending more."];
 const $=s=>document.querySelector(s),app=$("#app");
+const LOGO=s=>`<svg width="${s}" height="${s}" viewBox="0 0 512 512" role="img" aria-label="Financial Independence"><rect width="512" height="512" rx="112" fill="#14213d"/><circle cx="202" cy="256" r="118" fill="#2ec4b6"/><circle cx="310" cy="256" r="118" fill="#f4b942"/><path d="M256 151.08A118 118 0 0 1 256 360.92A118 118 0 0 1 256 151.08Z" fill="#fff"/><path d="M256 330V196M212 238L256 194L300 238" fill="none" stroke="#14213d" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const aed=n=>"AED "+Math.round(n).toLocaleString("en-US");
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const pad=n=>String(n).padStart(2,"0"),ym=d=>d.getFullYear()+"-"+pad(d.getMonth()+1);
 const NOW=new Date(),CUR=ym(NOW);
 const mlabel=m=>{const[y,mo]=m.split("-");return new Date(y,mo-1).toLocaleString("en",{month:"long",year:"numeric"})};
-let S={user:null,room:null,roomId:null,people:[],budgets:[],exp:[],rem:[],month:CUR,view:"home",sheet:null,pid:null,signup:false,join:new URLSearchParams(location.search).get("join")||""};
+let S={user:null,room:null,roomId:null,people:[],budgets:[],exp:[],rem:[],loans:[],month:CUR,view:"home",sheet:null,pid:null,signup:false,join:new URLSearchParams(location.search).get("join")||""};
 const uname=()=>S.people.find(p=>p.id==S.user.id)?.name||S.user.user_metadata?.name||"Me";
 const other=()=>S.people.find(p=>p.id!=S.user.id);
 function flash(m){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3500)}
@@ -50,11 +52,12 @@ async function load(){
  const{data:r}=await db.from("rooms").select("code").eq("id",mine.room_id).single();
  S.room=r;S.roomId=mine.room_id;S.people=mem.map(m=>({id:m.user_id,name:m.profiles?.name||"Friend"}));
  const ids=S.people.map(p=>p.id);
- const[b,e,rm]=await Promise.all([
+ const[b,e,rm,lo]=await Promise.all([
   db.from("budgets").select("*").in("user_id",ids),
   db.from("expenses").select("*").in("user_id",ids).order("spent_on",{ascending:false}).order("created_at",{ascending:false}),
-  db.from("reminders").select("*").order("created_at",{ascending:false})]);
- S.budgets=b.data||[];S.exp=e.data||[];S.rem=rm.data||[];
+  db.from("reminders").select("*").order("created_at",{ascending:false}),
+  db.from("loans").select("*").order("created_at",{ascending:false})]);
+ S.budgets=b.data||[];S.exp=e.data||[];S.rem=rm.data||[];S.loans=lo.data||[];
 }
 function stats(uid,m){
  const b=S.budgets.find(x=>x.user_id==uid&&x.month==m),ex=S.exp.filter(x=>x.user_id==uid&&x.month==m);
@@ -72,10 +75,10 @@ function stats(uid,m){
 const months=()=>{const s=new Set([CUR]);S.budgets.forEach(b=>s.add(b.month));S.exp.forEach(e=>s.add(e.month));return[...s].sort().reverse()};
 
 /* ---------- views ---------- */
-function authV(){const su=S.signup;return`<div class="wrap"><h1>Financial Independence 💸</h1><p class="m">Spend smart, together.</p>
+function authV(){const su=S.signup;return`<div class="wrap">${LOGO(88)}<h1 style="margin-top:14px">Financial Independence</h1><p class="m">Spend smart, together.</p>
 ${su?`<input id="nm" placeholder="Your name" maxlength="30">`:""}<input id="em" type="email" placeholder="Email" autocomplete="email"><input id="pw" type="password" placeholder="Password (6+ characters)" autocomplete="${su?"new":"current"}-password">
 <button class="btn" onclick="auth()">${su?"Create account":"Log in"}</button><button class="lnk" onclick="S.signup=!S.signup;render()">${su?"I already have an account":"Create an account"}</button></div>`}
-function roomV(){return`<div class="wrap"><h1>Hi ${esc(uname())} 👋</h1><p class="m">Create a private room, or join your friend's.</p>
+function roomV(){return`<div class="wrap">${LOGO(64)}<h1 style="margin-top:12px">Hi ${esc(uname())} 👋</h1><p class="m">Create a private room, or join your friend's.</p>
 <button class="btn" onclick="mkRoom()">Create a room</button><div class="or">or join with a code</div>
 <input id="code" placeholder="Room code" maxlength="8" value="${esc(S.join)}" style="text-transform:uppercase"><button class="btn alt" onclick="joinRoom()">Join room</button><button class="lnk" onclick="out()">Log out</button></div>`}
 function planForm(){const me=S.user.id,b=stats(me,CUR).b||S.budgets.filter(x=>x.user_id==me).sort((a,c)=>c.month.localeCompare(a.month))[0]||{};const v=x=>x==null?"":x;
@@ -101,6 +104,7 @@ function home(){
  ${card({id:me,name:uname()},stats(me,S.month),1)}
  ${cur?`<button class="btn add" onclick="S.sheet={t:'add'};render()">＋ Add Expense</button><button class="btn hun" onclick="S.sheet={t:'hungry'};render()">🍽️ I'm Hungry</button>`:""}
  ${o?card(o,stats(o.id,S.month),0):`<div class="card"><b>Waiting for your friend</b><p class="m">Room code: <b>${esc(S.room.code)}</b></p><button class="btn alt" onclick="share()">Share invite link</button></div>`}
+ ${o?loanCard(o):""}
  ${cur?`<button class="lnk" onclick="S.sheet={t:'plan'};render()">Edit my budget and food plan</button>`:""}</div>`}
 function person(){
  const p=S.people.find(x=>x.id==S.pid),mine=p.id==S.user.id,s=stats(p.id,S.month),b=s.b||{};
@@ -113,8 +117,21 @@ function person(){
  <div class="card"><b>Food</b><div class="li"><span>Food spent</span><b>${aed(s.food)}${s.fb?" of "+aed(s.fb):""}</b></div>${plan("chicken","Chicken")}${plan("fish","Fish")}
  ${["Matbakh / cheap meal","Restaurant","Snack / Drink","Other"].filter(k=>s.ft[k]).map(k=>`<div class="li"><span>${k}</span><b>${s.ft[k]}×</b></div>`).join("")}</div>
  <div class="card"><b>Expenses</b>${s.ex.map(x=>`<div class="li"><span>${esc(x.spent_on.slice(5))} · ${esc(x.category)}${x.food_type?" · "+esc(x.food_type):""}<br><span class="m">${esc(x.note||"")}</span></span><span><b>${aed(x.amount)}</b>${mine?`<button class="x" onclick="del('${x.id}')">🗑</button>`:""}</span></div>`).join("")||`<p class="m">Nothing yet.</p>`}</div></div>`}
+const money=n=>"AED "+(Math.round(n*100)/100).toLocaleString("en-US");
+// Net money between us: + means my friend owes me, - means I owe my friend (every entry is money one person handed to the other)
+const loanBal=()=>S.loans.reduce((a,l)=>a+(l.from_user==S.user.id?1:-1)*Number(l.amount),0);
+function loanText(l){const me=S.user.id,mine=l.from_user==me,n=esc(mname(mine?l.to_user:l.from_user)),a=money(l.amount);
+ return l.kind=="loan"?(mine?`You lent ${n} ${a}`:`${n} lent you ${a}`):(mine?`You paid ${n} back ${a}`:`${n} paid you back ${a}`)}
+function loanCard(o){const b=loanBal(),n=esc(o.name),settled=Math.abs(b)<0.005;
+ const line=settled?`All settled ✓`:b>0?`${n} owes you ${money(b)}`:`You owe ${n} ${money(-b)}`;
+ return`<div class="card"><b>Money between us</b><div class="big" style="font-size:24px;color:${settled?"var(--ok)":b>0?"var(--ink)":"var(--warn)"}">${line}</div>
+ <button class="btn alt" style="padding:11px;font-size:15px" onclick="S.sheet={t:'loan'};render()">Add lend or pay back</button>
+ <button class="lnk" onclick="S.sheet={t:'loans'};render()">See history (${S.loans.length})</button></div>`}
 function sheetV(){
  const t=S.sheet?.t;if(!t)return"";let h="";const me=S.user.id;
+ if(t=="loan"){const n=esc(other().name);h=`<h3>Money between us</h3><select id="lk"><option value="lend">I lent ${n} money</option><option value="theypay">${n} paid me back</option><option value="borrow">${n} lent me money</option><option value="ipay">I paid ${n} back</option></select>
+  <input id="lamt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Amount (AED)"><input id="lnote" maxlength="80" placeholder="Short note (optional)"><button class="btn" onclick="saveLoan()">Save</button><p class="m">Your friend sees this too. Partial payments are fine, the balance updates by itself.</p>`}
+ if(t=="loans")h=`<h3>History</h3>${S.loans.map(l=>`<div class="li"><span>${loanText(l)}<br><span class="m">${esc(l.note||"")}${l.note?" · ":""}${new Date(l.created_at).toLocaleDateString("en",{day:"numeric",month:"short"})}</span></span>${l.created_by==me?`<button class="x" onclick="delLoan('${l.id}')">🗑</button>`:""}</div>`).join("")||`<p class="m">Nothing yet.</p>`}`;
  if(t=="add")h=`<h3>Add expense</h3><input id="amt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="How much did you spend? (AED)">
   <select id="cat" onchange="$('#ftw').style.display=this.value=='Food'?'block':'none'">${CATS.map(c=>`<option ${c==S.sheet.cat?"selected":""}>${c}</option>`).join("")}</select>
   <div id="ftw" style="display:${S.sheet.cat=="Food"?"block":"none"}"><select id="ft">${FOODS.map(f=>`<option ${f==S.sheet.food?"selected":""}>${f}</option>`).join("")}</select></div>
@@ -168,6 +185,14 @@ async function saveExp(){
  if(error)return flash(error.message);S.sheet=null;S.month=CUR;await load();render();
 }
 async function del(id){if(!confirm("Delete this expense?"))return;const{error}=await db.from("expenses").delete().eq("id",id);if(error)return flash(error.message);await load();render()}
+async function saveLoan(){
+ const amount=parseFloat($("#lamt").value),k=$("#lk").value,me=S.user.id,o=other();
+ if(!(amount>0&&amount<=1e6))return flash("Enter an amount above 0");
+ const m={lend:["loan",me,o.id],theypay:["repay",o.id,me],borrow:["loan",o.id,me],ipay:["repay",me,o.id]}[k];
+ const{error}=await db.from("loans").insert({room_id:S.roomId,created_by:me,kind:m[0],from_user:m[1],to_user:m[2],amount,note:$("#lnote").value.trim()||null});
+ if(error)return flash(error.message);S.sheet=null;await load();render();
+}
+async function delLoan(id){if(!confirm("Delete this entry?"))return;const{error}=await db.from("loans").delete().eq("id",id);if(error)return flash(error.message);await load();render()}
 async function sendRem(msg){
  msg=(msg||"").trim().slice(0,200);if(!msg)return flash("Write a message first");
  const last=S.rem.find(r=>r.from_user==S.user.id),wait=last?60-(Date.now()-new Date(last.created_at))/6e4:0;
