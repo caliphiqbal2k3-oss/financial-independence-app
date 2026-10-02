@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Financial Independence</title>
-<link rel="icon" href="icon.png"><link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png"><link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon.png">
 <style>
 :root{--bg:#eef2f7;--ink:#14213d;--mut:#64708a;--card:#fff;--ok:#0b7a75;--warn:#c77700;--bad:#d62839;--line:#dde3ec}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
@@ -34,16 +34,17 @@ const CATS=["Food","Transport","Essentials","Clothing","Education","Entertainmen
 const BASEFOOD=["Matbakh / cheap meal","Restaurant","Snack / Drink","Other"];
 // each person's own meal plan: {"Chicken":3,"Fish":1,"Beef":2}. Older saved plans (chicken/fish columns) still work.
 const planOf=b=>{const p={};if(b?.food_plan&&typeof b.food_plan=="object"){Object.entries(b.food_plan).forEach(([k,v])=>{if(v!=null)p[k]=Number(v)})}else{if(b?.chicken_plan!=null)p.Chicken=Number(b.chicken_plan);if(b?.fish_plan!=null)p.Fish=Number(b.fish_plan)}return p};
-let HF=[];
+let HF=[],MP=[];
 const PRESETS=["You're spending a little too fast this month.","Slow down on the spending 😂","Check your budget before spending more."];
 const $=s=>document.querySelector(s),app=$("#app");
+const VAPID_PUBLIC="BL3VQQz3OlbMMGOVFowsvNhmY261qbEn9qvEll4NxyTDK6jJcQFb2DdgKlXMtZNE-_60ubwdcj5MITW5lrAuW30";
 const LOGO=s=>`<svg width="${s}" height="${s}" viewBox="0 0 512 512" role="img" aria-label="Financial Independence"><rect width="512" height="512" rx="112" fill="#14213d"/><circle cx="202" cy="256" r="118" fill="#2ec4b6"/><circle cx="310" cy="256" r="118" fill="#f4b942"/><path d="M256 151.08A118 118 0 0 1 256 360.92A118 118 0 0 1 256 151.08Z" fill="#fff"/><path d="M256 330V196M212 238L256 194L300 238" fill="none" stroke="#14213d" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const aed=n=>"AED "+Math.round(n).toLocaleString("en-US");
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const pad=n=>String(n).padStart(2,"0"),ym=d=>d.getFullYear()+"-"+pad(d.getMonth()+1);
 const NOW=new Date(),CUR=ym(NOW);
 const mlabel=m=>{const[y,mo]=m.split("-");return new Date(y,mo-1).toLocaleString("en",{month:"long",year:"numeric"})};
-let S={user:null,room:null,roomId:null,people:[],budgets:[],exp:[],rem:[],loans:[],reqs:[],pending:null,hostId:null,plan:[],month:CUR,view:"home",sheet:null,pid:null,signup:false,join:new URLSearchParams(location.search).get("join")||""};
+let S={user:null,room:null,roomId:null,people:[],budgets:[],exp:[],rem:[],loans:[],reqs:[],pending:null,hostId:null,plan:[],pushOn:false,month:CUR,view:"home",sheet:null,pid:null,signup:false,join:new URLSearchParams(location.search).get("join")||""};
 const uname=()=>S.people.find(p=>p.id==S.user.id)?.name||S.user.user_metadata?.name||"Me";
 const others=()=>S.people.filter(p=>p.id!=S.user.id),MAX=6;
 function flash(m){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3500)}
@@ -112,12 +113,13 @@ function home(){
  const me=S.user.id,os=others(),isHost=S.hostId==me,pend=isHost?S.reqs.filter(r=>r.room_id==S.roomId).length:0,cur=S.month==CUR,unread=S.rem.filter(r=>r.to_user==me&&!r.read).length;
  return`<div class="wrap"><div class="top"><select onchange="S.month=this.value;render()">${months().map(m=>`<option value="${m}" ${m==S.month?"selected":""}>${mlabel(m)}</option>`).join("")}</select>
  <span><button class="ic" onclick="S.sheet={t:'people'};render()">👥${pend?`<em>${pend}</em>`:""}</button><button class="ic" onclick="openInbox()">🔔${unread?`<em>${unread}</em>`:""}</button><button class="ic" onclick="out()">⎋</button></span></div>
+ ${pushCard()}
  ${card({id:me,name:uname()},stats(me,S.month),1)}
  ${cur?`<button class="btn add" onclick="S.sheet={t:'add'};render()">＋ Add Expense</button><button class="btn hun" onclick="S.sheet={t:'hungry'};render()">🍽️ I'm Hungry</button>`:""}
  ${os.map(p=>card(p,stats(p.id,S.month),0)).join("")}
  ${os.length?loanCard():""}
  ${isHost&&S.people.length<MAX?`<div class="card"><b>${os.length?"Invite another friend":"Waiting for your friend"}</b><p class="m">Room code: <b>${esc(S.room.code)}</b> · ${S.people.length} of ${MAX} joined</p><button class="btn alt" onclick="share()">Share invite link</button></div>`:""}
- ${cur?`<button class="lnk" onclick="S.sheet={t:'plan'};render()">Edit my budget and food plan</button>`:""}</div>`}
+ ${cur?`<button class="lnk" onclick="S.sheet={t:'plan'};render()">Edit my budget and food plan</button>`:""}${installBtn()}<p class="m" style="text-align:center;margin-top:14px">Version 6</p></div>`}
 function person(){
  const p=S.people.find(x=>x.id==S.pid),mine=p.id==S.user.id,s=stats(p.id,S.month),b=s.b||{};
  const sent=S.rem.filter(r=>r.from_user==p.id&&r.created_at.slice(0,7)==S.month).length,got=S.rem.filter(r=>r.to_user==p.id&&r.created_at.slice(0,7)==S.month).length;
@@ -137,7 +139,7 @@ function loanText(l){const me=S.user.id,mine=l.from_user==me,n=esc(mname(mine?l.
 function loanCard(){return`<div class="card"><b>Money between us</b>${others().map(p=>{
  const b=loanBal(p.id),n=esc(p.name),settled=Math.abs(b)<0.005,col=settled?"var(--ok)":b>0?"var(--ink)":"var(--warn)",
  t=settled?"All settled ✓":b>0?`${n} owes you ${money(b)}`:`You owe ${n} ${money(-b)}`;
- return`<div class="li"><span><b>${n}</b><br><span style="color:${col};font-weight:600">${t}</span></span><span style="display:flex;gap:6px"><button class="ic" style="margin:0;font-size:14px" onclick="S.sheet={t:'loan',to:'${p.id}'};render()">Add</button><button class="ic" style="margin:0;font-size:14px" onclick="S.sheet={t:'loans',to:'${p.id}'};render()">History</button></span></div>`}).join("")}</div>`}
+ return`<div class="li"><span><b>${n}</b><br><span style="color:${col};font-weight:600">${t}</span></span><span style="display:flex;gap:6px">${b>0.005?`<button class="ic" style="margin:0;font-size:14px" onclick="S.sheet={t:'moneyrem',to:'${p.id}'};render()">Remind</button>`:""}<button class="ic" style="margin:0;font-size:14px" onclick="S.sheet={t:'loan',to:'${p.id}'};render()">Add</button><button class="ic" style="margin:0;font-size:14px" onclick="S.sheet={t:'loans',to:'${p.id}'};render()">History</button></span></div>`}).join("")}</div>`}
 const foodOpts=()=>["Matbakh / cheap meal","Chicken","Fish",...Object.keys(planOf(stats(S.user.id,CUR).b)).filter(k=>k!="Chicken"&&k!="Fish"),"Restaurant","Snack / Drink","Other"];
 function sheetV(){
  const t=S.sheet?.t;if(!t)return"";let h="";const me=S.user.id;
@@ -145,6 +147,9 @@ function sheetV(){
   h=`<h3>People (${S.people.length} of ${MAX})</h3>${rq.map(r=>`<div class="li"><span><b>${esc(r.name)}</b><br><span class="m">wants to join</span></span><span style="display:flex;gap:6px"><button class="ic" style="margin:0;font-size:14px" onclick="approve('${r.user_id}')">Approve</button><button class="ic" style="margin:0;font-size:14px" onclick="decline('${r.user_id}')">Decline</button></span></div>`).join("")}
   ${S.people.map(p=>`<div class="li" onclick="S.sheet=null;S.pid='${p.id}';S.view='p';render()"><span><b>${esc(p.name)}${p.id==me?" (you)":""}${p.id==S.hostId?" · host":""}</b><br><span class="m">Tap to see all months</span></span>${host&&p.id!=me?`<button class="x" style="font-size:14px" onclick="event.stopPropagation();removeMember('${p.id}')">Remove</button>`:""}</div>`).join("")}
   ${host?`<p class="m">Room code: <b>${esc(S.room.code)}</b></p><button class="btn" onclick="share()">Share invite link</button><button class="lnk" onclick="resetCode()">Make a new room code</button>`:""}`}
+ if(t=="moneyrem"){const b=loanBal(S.sheet.to),a=b>0.005?" "+money(b):"";
+  MP=[`Friendly reminder about the${a} you owe me 🙏`,`When can you pay me back the${a}?`,`Please send me back the${a} when you can, thank you!`];
+  h=`<h3>Remind ${esc(mname(S.sheet.to))} to pay you back</h3>${MP.map((p,i)=>`<button class="opt" onclick="sendRem(MP[${i}],'money')">${esc(p)}</button>`).join("")}<textarea id="rmsg" rows="2" maxlength="200" placeholder="Or write your own…"></textarea><button class="btn" onclick="sendRem($('#rmsg').value,'money')">Send</button><p class="m">You can send one money reminder per hour to each person.</p>`}
  if(t=="loan"){const n=esc(mname(S.sheet.to));h=`<h3>Money between you and ${n}</h3><select id="lk"><option value="lend">I lent ${n} money</option><option value="theypay">${n} paid me back</option><option value="borrow">${n} lent me money</option><option value="ipay">I paid ${n} back</option></select>
   <input id="lamt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Amount (AED)"><input id="lnote" maxlength="80" placeholder="Short note (optional)"><button class="btn" onclick="saveLoan()">Save</button><p class="m">${n} sees this too, nobody else does. Partial payments are fine, the balance updates by itself.</p>`}
  if(t=="loans")h=`<h3>History with ${esc(mname(S.sheet.to))}</h3>${S.loans.filter(l=>l.from_user==S.sheet.to||l.to_user==S.sheet.to).map(l=>`<div class="li"><span>${loanText(l)}<br><span class="m">${esc(l.note||"")}${l.note?" · ":""}${new Date(l.created_at).toLocaleDateString("en",{day:"numeric",month:"short"})}</span></span>${l.created_by==me?`<button class="x" onclick="delLoan('${l.id}')">🗑</button>`:""}</div>`).join("")||`<p class="m">Nothing yet.</p>`}`;
@@ -154,7 +159,7 @@ function sheetV(){
   <input id="note" maxlength="80" placeholder="Short description (optional)"><button class="btn" onclick="saveExp()">Save expense</button>`;
  if(t=="plan")h=`<h3>My budget and food plan</h3>${planForm()}`;
  if(t=="rem")h=`<h3>Send a reminder to ${esc(mname(S.sheet.to))}</h3>${PRESETS.map((p,i)=>`<button class="opt" onclick="sendRem(PRESETS[${i}])">${esc(p)}</button>`).join("")}<textarea id="rmsg" rows="2" maxlength="200" placeholder="Or write your own…"></textarea><button class="btn" onclick="sendRem($('#rmsg').value)">Send</button><p class="m">You can send one reminder per hour to each person.</p>`;
- if(t=="inbox"){const l=S.rem.filter(r=>r.to_user==me);h=`<h3>Reminders for you</h3>${l.map(r=>`<div class="li"><span>${esc(r.message)}<br><span class="m">${esc(mname(r.from_user))} · ${new Date(r.created_at).toLocaleString("en",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"})}</span></span></div>`).join("")||`<p class="m">No reminders yet.</p>`}`}
+ if(t=="inbox"){const l=S.rem.filter(r=>r.to_user==me);h=`<h3>Reminders for you</h3>${l.map(r=>`<div class="li"><span>${r.topic=="money"?"💰 ":""}${esc(r.message)}<br><span class="m">${esc(mname(r.from_user))} · ${new Date(r.created_at).toLocaleString("en",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"})}</span></span></div>`).join("")||`<p class="m">No reminders yet.</p>`}`}
  if(t=="hungry"){const s=stats(me,CUR),dl=s.dim-s.day+1,pd=Math.max(0,s.rem/dl),pl=s.plan;HF=[];
   const left=k=>pl[k]==null?null:pl[k]-(s.ft[k]||0);
   const cl=left("Chicken"),customs=Object.keys(pl).filter(k=>k!="Chicken"&&k!="Fish"),fast=s.pct>s.elapsed+10||s.rem<=0,cheap=fast||(cl!=null&&cl<=0);
@@ -182,9 +187,11 @@ async function auth(){
  const r=S.signup?await db.auth.signUp({email,password,options:{data:{name}}}):await db.auth.signInWithPassword({email,password});
  if(r.error)return flash(r.error.message);
  if(!r.data.session)return flash("Check your email to confirm, then log in");
- S.user=r.data.user;await load();render();
+ S.user=r.data.user;await load();render();initPush();
 }
-async function out(){await db.auth.signOut();S.user=null;S.room=null;S.view="home";S.sheet=null;render()}
+async function out(){
+ try{const reg=await navigator.serviceWorker?.getRegistration(),s=await reg?.pushManager?.getSubscription();if(s)await db.from("push_subscriptions").delete().eq("endpoint",s.endpoint)}catch(e){}
+ S.pushOn=false;await db.auth.signOut();S.user=null;S.room=null;S.view="home";S.sheet=null;render()}
 async function mkRoom(){const{error}=await db.rpc("create_room");if(error)return flash(error.message);await load();render()}
 async function joinRoom(){const c=$("#code").value.trim();if(!c)return flash("Enter the room code");const{error}=await db.rpc("join_room",{p_code:c});if(error)return flash(error.message);await load();render();flash("Request sent ✓ Waiting for the host");$(".toast").style.background="var(--ok)"}
 async function recheck(){await load();render()}
@@ -223,21 +230,57 @@ async function saveLoan(){
  if(error)return flash(error.message);S.sheet=null;await load();render();
 }
 async function delLoan(id){if(!confirm("Delete this entry?"))return;const{error}=await db.from("loans").delete().eq("id",id);if(error)return flash(error.message);await load();render()}
-async function sendRem(msg){
+async function sendRem(msg,topic="spend"){
  msg=(msg||"").trim().slice(0,200);if(!msg)return flash("Write a message first");
  const to=S.sheet?.to;if(!to)return flash("Pick a person first");
- const last=S.rem.find(r=>r.from_user==S.user.id&&r.to_user==to),wait=last?60-(Date.now()-new Date(last.created_at))/6e4:0;
+ const last=S.rem.find(r=>r.from_user==S.user.id&&r.to_user==to&&(r.topic||"spend")==topic),wait=last?60-(Date.now()-new Date(last.created_at))/6e4:0;
  if(wait>0)return flash("Wait "+Math.ceil(wait)+" more min before another reminder");
- const{error}=await db.from("reminders").insert({room_id:S.roomId,from_user:S.user.id,to_user:to,message:msg});
+ const{error}=await db.from("reminders").insert({room_id:S.roomId,from_user:S.user.id,to_user:to,message:msg,topic});
  if(error)return flash(error.message);S.sheet=null;await load();render();flash("Reminder sent ✓");$(".toast").style.background="var(--ok)";
 }
 async function openInbox(){S.sheet={t:"inbox"};render();await db.from("reminders").update({read:true}).eq("to_user",S.user.id).eq("read",false);await load();render()}
+/* ---------- phone notifications ---------- */
+let DIP=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();DIP=e;if(S.user)render()});
+window.addEventListener("appinstalled",()=>{DIP=null;if(S.user)render()});
+function installBtn(){return DIP?`<button class="btn" style="margin-top:14px" onclick="doInstall()">Install app on this phone</button>`:""}
+async function doInstall(){if(!DIP)return;DIP.prompt();try{await DIP.userChoice}catch(e){}DIP=null;render()}
+const pushSupported=()=>typeof navigator!="undefined"&&"serviceWorker" in navigator&&typeof window!="undefined"&&"PushManager" in window&&"Notification" in window;
+const b64u=s=>{const p="=".repeat((4-s.length%4)%4),r=atob((s+p).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from(r,c=>c.charCodeAt(0))};
+function pushCard(){
+ if(S.pushOn)return"";
+ if(!pushSupported()){const ios=/iPhone|iPad|iPod/.test((typeof navigator!="undefined"&&navigator.userAgent)||"");
+  return`<div class="card"><b>🔔 Phone notifications</b><p class="m">${ios?"To get reminders on your phone: tap the Share button, choose Add to Home Screen, then open the app from your Home Screen and tap Turn on notifications here.":"This browser can't show phone notifications."}</p></div>`}
+ return`<div class="card"><b>🔔 Phone notifications</b><p class="m">Get reminders even when the app is closed.</p><button class="btn" style="margin:6px 0 0" onclick="enablePush()">Turn on notifications</button></div>`}
+async function initPush(){
+ if(!pushSupported()||!S.user)return;
+ try{const reg=await navigator.serviceWorker.register("sw.js"),s=await reg.pushManager.getSubscription();
+  if(s&&Notification.permission=="granted"){const{data}=await db.from("push_subscriptions").select("endpoint").eq("endpoint",s.endpoint);S.pushOn=!!(data&&data.length)}
+ }catch(e){}
+ if(S.user&&S.room&&!S.sheet)render();
+}
+async function enablePush(){
+ if(!pushSupported())return flash("Add the app to your Home Screen first, then open it from there");
+ try{
+  const perm=await Notification.requestPermission();
+  if(perm!="granted")return flash("Notifications are blocked. Allow them for this app in your phone settings.");
+  const reg=await navigator.serviceWorker.register("sw.js");await navigator.serviceWorker.ready;
+  let sub=await reg.pushManager.getSubscription();
+  if(sub){const{data}=await db.from("push_subscriptions").select("endpoint").eq("endpoint",sub.endpoint);if(!(data&&data.length)){await sub.unsubscribe();sub=null}}
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(VAPID_PUBLIC)});
+  const j=sub.toJSON();
+  const{error}=await db.from("push_subscriptions").upsert({user_id:S.user.id,endpoint:j.endpoint,p256dh:j.keys.p256dh,auth:j.keys.auth},{onConflict:"endpoint"});
+  if(error)return flash(error.message);
+  S.pushOn=true;render();
+  await reg.showNotification("Notifications are on ✓",{body:"You will get reminders here.",icon:"icon.png"});
+ }catch(e){flash("Could not turn on notifications: "+(e.message||e))}
+}
 function share(){const u=location.origin+location.pathname+"?join="+S.room.code;if(navigator.share)navigator.share({title:"Financial Independence",text:"Join my room",url:u}).catch(()=>{});else{navigator.clipboard?.writeText(u);flash("Link copied")}}
 
 (async()=>{
  if(SB_URL.startsWith("PASTE")){app.innerHTML=`<div class="wrap"><h1>Almost there</h1><p class="m">Paste your Supabase URL and key at the top of index.html.</p></div>`;return}
  const{data:{session}}=await db.auth.getSession();S.user=session?.user||null;
- if(S.user)await load();render();
+ if(S.user)await load();render();initPush();
  setInterval(async()=>{if(S.user&&S.room&&!S.sheet&&S.view=="home"&&stats(S.user.id,CUR).b){await load();render()}else if(S.user&&!S.room&&S.pending){await load();render()}},20000);
 })();
 </script></body></html>

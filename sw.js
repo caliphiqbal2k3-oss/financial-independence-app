@@ -19,3 +19,8 @@ self.addEventListener("notificationclick", e => {
     return self.clients.openWindow("./");
   }));
 });
+
+self.addEventListener("fetch", e => {
+  if (e.request.method !== "GET") return;
+  e.respondWith(fetch(e.request, { cache: "no-cache" }).catch(() => caches.match(e.request).then(r => r || Response.error())));
+});
