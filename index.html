@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Financial Independence</title>
-<link rel="icon" href="icon.png"><link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png"><link rel="preconnect" href="https://gwvahlsiugpspksehwre.supabase.co" crossorigin><link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon.png">
 <style>
 :root{--bg:#eef2f7;--ink:#14213d;--mut:#64708a;--card:#fff;--ok:#0b7a75;--warn:#c77700;--bad:#d62839;--line:#dde3ec}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
@@ -23,6 +23,11 @@ input,select,textarea{width:100%;font:inherit;padding:13px;margin:6px 0;border:1
 .opt{display:block;width:100%;text-align:left;padding:14px;margin:8px 0;border:2px solid var(--line);border-radius:14px;background:#fff;font:inherit;color:var(--ink)}.opt b{display:block}.opt span{color:var(--mut);font-size:14px}.opt.rec{border-color:var(--ok);background:#e9f6f5}
 .li{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}.li:last-child{border:0}.x{background:none;border:0;color:var(--bad);font-size:18px}
 .toast{position:fixed;left:16px;right:16px;bottom:24px;background:var(--bad);color:#fff;padding:13px;border-radius:12px;z-index:9;text-align:center}.or{text-align:center;color:var(--mut);margin:14px 0 4px}
+button,select,.opt,.card{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.btn:active,.opt:active,.ic:active{transform:scale(.97);opacity:.85}
+.sh{animation:up .18s ease-out}@keyframes up{from{transform:translateY(28px);opacity:.5}}
+.ov{animation:fd .15s ease-out}@keyframes fd{from{opacity:0}}
+.spin{animation:sp .7s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body><div id="app"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -44,26 +49,57 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const pad=n=>String(n).padStart(2,"0"),ym=d=>d.getFullYear()+"-"+pad(d.getMonth()+1);
 const NOW=new Date(),CUR=ym(NOW);
 const mlabel=m=>{const[y,mo]=m.split("-");return new Date(y,mo-1).toLocaleString("en",{month:"long",year:"numeric"})};
-let S={user:null,room:null,roomId:null,people:[],budgets:[],exp:[],rem:[],loans:[],reqs:[],pending:null,hostId:null,plan:[],pushOn:false,month:CUR,view:"home",sheet:null,pid:null,signup:false,join:new URLSearchParams(location.search).get("join")||""};
+const VERSION=8;
+let S={allExp:false,newv:false,user:null,room:null,roomId:null,people:[],budgets:[],exp:[],rem:[],loans:[],reqs:[],pending:null,hostId:null,plan:[],pushOn:false,month:CUR,view:"home",sheet:null,pid:null,signup:false,join:new URLSearchParams(location.search).get("join")||""};
 const uname=()=>S.people.find(p=>p.id==S.user.id)?.name||S.user.user_metadata?.name||"Me";
 const others=()=>S.people.filter(p=>p.id!=S.user.id),MAX=6;
-function flash(m){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3500)}
+function flash(m,ok){const t=document.createElement("div");t.className="toast";t.textContent=m;if(ok)t.style.background="var(--ok)";document.body.appendChild(t);setTimeout(()=>t.remove(),3500)}
 
+const CK="fi_cache";
+function saveCache(){try{localStorage.setItem(CK,JSON.stringify({u:S.user.id,room:S.room,hostId:S.hostId,roomId:S.roomId,people:S.people,budgets:S.budgets,exp:S.exp,rem:S.rem,loans:S.loans,reqs:S.reqs,pending:S.pending}))}catch(e){}}
+function useCache(){try{const c=JSON.parse(localStorage.getItem(CK)||"null");if(!c||!S.user||c.u!=S.user.id||!c.room)return false;Object.assign(S,{room:c.room,hostId:c.hostId,roomId:c.roomId,people:c.people||[],budgets:c.budgets||[],exp:c.exp||[],rem:c.rem||[],loans:c.loans||[],reqs:c.reqs||[],pending:c.pending||null});return true}catch(e){return false}}
+const prevM=()=>ym(new Date(NOW.getFullYear(),NOW.getMonth()-1,1));
 async function load(){
- const{data:rq}=await db.from("join_requests").select("*");S.reqs=rq||[];S.pending=S.reqs.find(x=>x.user_id==S.user.id)||null;
- const{data:mem}=await db.from("members").select("room_id,user_id,profiles(name)");
- const mine=(mem||[]).find(m=>m.user_id==S.user.id);
- if(!mine){S.room=null;S.people=[];return}
- const{data:r}=await db.from("rooms").select("code,created_by").eq("id",mine.room_id).single();
- S.room=r;S.hostId=r.created_by;S.roomId=mine.room_id;S.people=mem.map(m=>({id:m.user_id,name:m.profiles?.name||"Friend"}));
- const ids=S.people.map(p=>p.id);
- const[b,e,rm,lo]=await Promise.all([
-  db.from("budgets").select("*").in("user_id",ids),
-  db.from("expenses").select("*").in("user_id",ids).order("spent_on",{ascending:false}).order("created_at",{ascending:false}),
-  db.from("reminders").select("*").order("created_at",{ascending:false}),
-  db.from("loans").select("*").order("created_at",{ascending:false})]);
- S.budgets=b.data||[];S.exp=e.data||[];S.rem=rm.data||[];S.loans=lo.data||[];
+ try{
+  let eq=db.from("expenses").select("*"),rq2=db.from("reminders").select("*");
+  if(!S.allExp){eq=eq.gte("month",prevM());rq2=rq2.gte("created_at",prevM()+"-01T00:00:00")}
+  const res=await Promise.all([
+   db.from("join_requests").select("*"),
+   db.from("members").select("room_id,user_id,profiles(name)"),
+   db.from("rooms").select("id,code,created_by"),
+   db.from("budgets").select("*"),
+   eq.order("spent_on",{ascending:false}).order("created_at",{ascending:false}),
+   rq2.order("created_at",{ascending:false}),
+   db.from("loans").select("*").order("created_at",{ascending:false})]);
+  if(res.some(x=>x.error))return false;
+  const[rq,mem,rr,b,e,rm,lo]=res;
+  S.reqs=rq.data||[];S.pending=S.reqs.find(x=>x.user_id==S.user.id)||null;
+  const members=mem.data||[],mine=members.find(m=>m.user_id==S.user.id);
+  if(!mine){S.room=null;S.people=[];try{localStorage.removeItem(CK)}catch(x){}return true}
+  const r=(rr.data||[]).find(x=>x.id==mine.room_id)||(rr.data||[])[0];
+  S.room=r;S.hostId=r.created_by;S.roomId=mine.room_id;S.people=members.filter(m=>m.room_id==mine.room_id).map(m=>({id:m.user_id,name:m.profiles?.name||"Friend"}));
+  const ids=S.people.map(p=>p.id);
+  S.budgets=(b.data||[]).filter(x=>ids.includes(x.user_id));S.exp=(e.data||[]).filter(x=>ids.includes(x.user_id));S.rem=rm.data||[];S.loans=lo.data||[];
+  saveCache();return true;
+ }catch(e){return false}
 }
+let PENDING=0,RF=false,LASTCHK=0;
+const softOK=()=>S.user&&((S.room&&!S.sheet&&stats(S.user.id,CUR).b)||(!S.room&&S.pending));
+async function refresh(){if(RF||PENDING>0||!S.user)return false;RF=true;let ok=false;try{ok=await load();if(ok&&softOK())render()}finally{RF=false}
+ if(Date.now()-LASTCHK>3e5)checkUpd();return ok}
+async function manualRefresh(){const b=$("#rf");if(b)b.classList.add("spin");const ok=await refresh();if(b)b.classList.remove("spin");flash(ok?"Up to date ✓":PENDING?"Saving, one moment…":"Can't reach the server",ok)}
+async function newer(){try{const r=await fetch("index.html?c="+Date.now(),{cache:"no-store"});const t=await r.text();const m=t.match(/const VERSION=(\d+)/);return m?Number(m[1])>VERSION:false}catch(e){return null}}
+async function checkUpd(){LASTCHK=Date.now();const n=await newer();if(n&&!S.newv){S.newv=true;if(softOK())render()}}
+async function updateApp(){
+ flash("Checking for updates…",1);
+ try{const regs=await navigator.serviceWorker?.getRegistrations?.();for(const r of regs||[])await r.update()}catch(e){}
+ const n=await newer();
+ if(n===null)return flash("Can't check right now. Are you online?");
+ if(!n)return flash("You already have the newest version ✓",1);
+ try{for(const k of await caches.keys())await caches.delete(k)}catch(e){}
+ location.replace(location.pathname+"?u="+Date.now());
+}
+async function pickMonth(v){S.month=v;render();if(v<prevM()&&!S.allExp){S.allExp=true;await load();render()}}
 function stats(uid,m){
  const b=S.budgets.find(x=>x.user_id==uid&&x.month==m),ex=S.exp.filter(x=>x.user_id==uid&&x.month==m);
  const spent=ex.reduce((a,x)=>a+Number(x.amount),0),cat={},ft={};
@@ -111,15 +147,16 @@ function card(p,s,mine){
  ${!mine&&S.month==CUR?`<button class="btn alt" style="padding:11px;font-size:15px" onclick="event.stopPropagation();S.sheet={t:'rem',to:'${p.id}'};render()">Send reminder</button>`:""}</div>`}
 function home(){
  const me=S.user.id,os=others(),isHost=S.hostId==me,pend=isHost?S.reqs.filter(r=>r.room_id==S.roomId).length:0,cur=S.month==CUR,unread=S.rem.filter(r=>r.to_user==me&&!r.read).length;
- return`<div class="wrap"><div class="top"><select onchange="S.month=this.value;render()">${months().map(m=>`<option value="${m}" ${m==S.month?"selected":""}>${mlabel(m)}</option>`).join("")}</select>
- <span><button class="ic" onclick="S.sheet={t:'people'};render()">👥${pend?`<em>${pend}</em>`:""}</button><button class="ic" onclick="openInbox()">🔔${unread?`<em>${unread}</em>`:""}</button><button class="ic" onclick="out()">⎋</button></span></div>
+ return`<div class="wrap"><div class="top"><select onchange="pickMonth(this.value)">${months().map(m=>`<option value="${m}" ${m==S.month?"selected":""}>${mlabel(m)}</option>`).join("")}</select>
+ <span><button class="ic" id="rf" onclick="manualRefresh()">↻</button><button class="ic" onclick="S.sheet={t:'people'};render()">👥${pend?`<em>${pend}</em>`:""}</button><button class="ic" onclick="openInbox()">🔔${unread?`<em>${unread}</em>`:""}</button><button class="ic" onclick="out()">⎋</button></span></div>
+ ${S.newv?`<div class="card" style="border-color:var(--ok)"><b>🎉 A new version is ready</b><button class="btn" style="margin:8px 0 0" onclick="updateApp()">Update now</button></div>`:""}
  ${pushCard()}
  ${card({id:me,name:uname()},stats(me,S.month),1)}
  ${cur?`<button class="btn add" onclick="S.sheet={t:'add'};render()">＋ Add Expense</button><button class="btn hun" onclick="S.sheet={t:'hungry'};render()">🍽️ I'm Hungry</button>`:""}
  ${os.map(p=>card(p,stats(p.id,S.month),0)).join("")}
  ${os.length?loanCard():""}
  ${isHost&&S.people.length<MAX?`<div class="card"><b>${os.length?"Invite another friend":"Waiting for your friend"}</b><p class="m">Room code: <b>${esc(S.room.code)}</b> · ${S.people.length} of ${MAX} joined</p><button class="btn alt" onclick="share()">Share invite link</button></div>`:""}
- ${cur?`<button class="lnk" onclick="S.sheet={t:'plan'};render()">Edit my budget and food plan</button>`:""}${installBtn()}<p class="m" style="text-align:center;margin-top:14px">Version 6</p></div>`}
+ ${cur?`<button class="lnk" onclick="S.sheet={t:'plan'};render()">Edit my budget and food plan</button>`:""}${installBtn()}<button class="lnk" onclick="updateApp()">Update app</button><p class="m" style="text-align:center;margin:0 0 14px">Version ${VERSION}</p></div>`}
 function person(){
  const p=S.people.find(x=>x.id==S.pid),mine=p.id==S.user.id,s=stats(p.id,S.month),b=s.b||{};
  const sent=S.rem.filter(r=>r.from_user==p.id&&r.created_at.slice(0,7)==S.month).length,got=S.rem.filter(r=>r.to_user==p.id&&r.created_at.slice(0,7)==S.month).length;
@@ -191,7 +228,7 @@ async function auth(){
 }
 async function out(){
  try{const reg=await navigator.serviceWorker?.getRegistration(),s=await reg?.pushManager?.getSubscription();if(s)await db.from("push_subscriptions").delete().eq("endpoint",s.endpoint)}catch(e){}
- S.pushOn=false;await db.auth.signOut();S.user=null;S.room=null;S.view="home";S.sheet=null;render()}
+ S.pushOn=false;await db.auth.signOut();try{localStorage.removeItem(CK)}catch(x){}S.user=null;S.room=null;S.view="home";S.sheet=null;render()}
 async function mkRoom(){const{error}=await db.rpc("create_room");if(error)return flash(error.message);await load();render()}
 async function joinRoom(){const c=$("#code").value.trim();if(!c)return flash("Enter the room code");const{error}=await db.rpc("join_room",{p_code:c});if(error)return flash(error.message);await load();render();flash("Request sent ✓ Waiting for the host");$(".toast").style.background="var(--ok)"}
 async function recheck(){await load();render()}
@@ -200,7 +237,7 @@ async function approve(uid){const{error}=await db.rpc("approve_join",{p_user:uid
 async function decline(uid){const{error}=await db.from("join_requests").delete().eq("user_id",uid);if(error)return flash(error.message);await load();render()}
 async function removeMember(uid){if(!confirm("Remove "+mname(uid)+" from the room? They will lose access to it."))return;const{error}=await db.rpc("remove_member",{p_user:uid});if(error)return flash(error.message);await load();render()}
 async function resetCode(){if(!confirm("Make a new room code? The old code and invite link will stop working."))return;const{error}=await db.rpc("reset_code");if(error)return flash(error.message);await load();render();flash("New code ready ✓");$(".toast").style.background="var(--ok)"}
-async function savePlan(){
+function savePlan(){
  const g=id=>$("#"+id).value.trim(),n=v=>v===""?null:Number(v),amount=Number(g("bud")),fb=n(g("fb"));
  if(!(amount>0&&amount<=1e7))return flash("Enter your monthly budget");
  if(fb!==null&&!(fb>=0))return flash("Check the food budget");
@@ -211,34 +248,69 @@ async function savePlan(){
   if(BASEFOOD.some(x=>x.toLowerCase()==nm.toLowerCase()))return flash(nm+" is already a built-in option, choose another name");
   if(Object.keys(fp).some(x=>x.toLowerCase()==nm.toLowerCase()))return flash("You listed "+nm+" twice");
   fp[nm]=c}
- const{error}=await db.from("budgets").upsert({user_id:S.user.id,month:CUR,amount,food_budget:fb,food_plan:fp,chicken_plan:null,fish_plan:null});
- if(error)return flash(error.message);S.sheet=null;await load();render();
+ const me=S.user.id,old=S.budgets.find(x=>x.user_id==me&&x.month==CUR),row={user_id:me,month:CUR,amount,food_budget:fb,food_plan:fp,chicken_plan:null,fish_plan:null};
+ S.budgets=S.budgets.filter(x=>x!==old).concat([{...(old||{}),...row}]);S.sheet=null;render();
+ PENDING++;
+ db.from("budgets").upsert(row).then(({error})=>{PENDING--;
+  if(error){S.budgets=S.budgets.filter(x=>!(x.user_id==me&&x.month==CUR));if(old)S.budgets.push(old);render();return flash(error.message)}
+  saveCache()});
 }
-async function saveExp(){
+function saveExp(){
  const amount=parseFloat($("#amt").value),category=$("#cat").value,n=new Date();
  if(!(amount>0&&amount<=1e6))return flash("Enter an amount above 0");
- const{error}=await db.from("expenses").insert({user_id:S.user.id,amount,category,food_type:category=="Food"?$("#ft").value:null,note:$("#note").value.trim()||null,spent_on:ym(n)+"-"+pad(n.getDate()),month:ym(n)});
- if(error)return flash(error.message);S.sheet=null;S.month=CUR;await load();render();
+ const row={user_id:S.user.id,amount,category,food_type:category=="Food"?$("#ft").value:null,note:$("#note").value.trim()||null,spent_on:ym(n)+"-"+pad(n.getDate()),month:ym(n)};
+ const tid="t"+Date.now(),tmp={...row,id:tid,created_at:new Date().toISOString()};
+ S.exp.unshift(tmp);S.sheet=null;S.month=CUR;render();
+ PENDING++;
+ db.from("expenses").insert(row).select().single().then(({data,error})=>{PENDING--;
+  if(error){S.exp=S.exp.filter(x=>x.id!=tid);render();return flash(error.message)}
+  const i=S.exp.findIndex(x=>x.id==tid);if(i>=0)S.exp[i]=data;saveCache()});
 }
-async function del(id){if(!confirm("Delete this expense?"))return;const{error}=await db.from("expenses").delete().eq("id",id);if(error)return flash(error.message);await load();render()}
-async function saveLoan(){
+function del(id){
+ if(String(id).startsWith("t"))return flash("Still saving, try again in a moment");
+ if(!confirm("Delete this expense?"))return;
+ const i=S.exp.findIndex(x=>x.id==id),old=S.exp[i];if(i<0)return;S.exp.splice(i,1);render();
+ PENDING++;
+ db.from("expenses").delete().eq("id",id).then(({error})=>{PENDING--;
+  if(error){S.exp.splice(i,0,old);render();return flash(error.message)}saveCache()});
+}
+function saveLoan(){
  const amount=parseFloat($("#lamt").value),k=$("#lk").value,me=S.user.id,o={id:S.sheet?.to};
  if(!o.id)return flash("Pick a person first");
  if(!(amount>0&&amount<=1e6))return flash("Enter an amount above 0");
  const m={lend:["loan",me,o.id],theypay:["repay",o.id,me],borrow:["loan",o.id,me],ipay:["repay",me,o.id]}[k];
- const{error}=await db.from("loans").insert({room_id:S.roomId,created_by:me,kind:m[0],from_user:m[1],to_user:m[2],amount,note:$("#lnote").value.trim()||null});
- if(error)return flash(error.message);S.sheet=null;await load();render();
+ const row={room_id:S.roomId,created_by:me,kind:m[0],from_user:m[1],to_user:m[2],amount,note:$("#lnote").value.trim()||null};
+ const tid="t"+Date.now(),tmp={...row,id:tid,created_at:new Date().toISOString()};
+ S.loans.unshift(tmp);S.sheet=null;render();
+ PENDING++;
+ db.from("loans").insert(row).select().single().then(({data,error})=>{PENDING--;
+  if(error){S.loans=S.loans.filter(x=>x.id!=tid);render();return flash(error.message)}
+  const i=S.loans.findIndex(x=>x.id==tid);if(i>=0)S.loans[i]=data;saveCache()});
 }
-async function delLoan(id){if(!confirm("Delete this entry?"))return;const{error}=await db.from("loans").delete().eq("id",id);if(error)return flash(error.message);await load();render()}
-async function sendRem(msg,topic="spend"){
+function delLoan(id){
+ if(String(id).startsWith("t"))return flash("Still saving, try again in a moment");
+ if(!confirm("Delete this entry?"))return;
+ const i=S.loans.findIndex(x=>x.id==id),old=S.loans[i];if(i<0)return;S.loans.splice(i,1);render();
+ PENDING++;
+ db.from("loans").delete().eq("id",id).then(({error})=>{PENDING--;
+  if(error){S.loans.splice(i,0,old);render();return flash(error.message)}saveCache()});
+}
+function sendRem(msg,topic="spend"){
  msg=(msg||"").trim().slice(0,200);if(!msg)return flash("Write a message first");
  const to=S.sheet?.to;if(!to)return flash("Pick a person first");
  const last=S.rem.find(r=>r.from_user==S.user.id&&r.to_user==to&&(r.topic||"spend")==topic),wait=last?60-(Date.now()-new Date(last.created_at))/6e4:0;
  if(wait>0)return flash("Wait "+Math.ceil(wait)+" more min before another reminder");
- const{error}=await db.from("reminders").insert({room_id:S.roomId,from_user:S.user.id,to_user:to,message:msg,topic});
- if(error)return flash(error.message);S.sheet=null;await load();render();flash("Reminder sent ✓");$(".toast").style.background="var(--ok)";
+ const row={room_id:S.roomId,from_user:S.user.id,to_user:to,message:msg,topic};
+ const tid="t"+Date.now();S.rem.unshift({...row,id:tid,read:false,created_at:new Date().toISOString()});S.sheet=null;render();flash("Reminder sent ✓",1);
+ PENDING++;
+ db.from("reminders").insert(row).then(({error})=>{PENDING--;
+  if(error){S.rem=S.rem.filter(x=>x.id!=tid);render();return flash(error.message)}
+  PENDING++;load().finally(()=>{PENDING--;if(softOK())render()})});
 }
-async function openInbox(){S.sheet={t:"inbox"};render();await db.from("reminders").update({read:true}).eq("to_user",S.user.id).eq("read",false);await load();render()}
+function openInbox(){
+ S.sheet={t:"inbox"};render();const me=S.user.id;
+ if(S.rem.some(r=>r.to_user==me&&!r.read)){S.rem.forEach(r=>{if(r.to_user==me)r.read=true});db.from("reminders").update({read:true}).eq("to_user",me).eq("read",false).then(()=>saveCache())}
+}
 /* ---------- phone notifications ---------- */
 let DIP=null;
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();DIP=e;if(S.user)render()});
@@ -280,7 +352,11 @@ function share(){const u=location.origin+location.pathname+"?join="+S.room.code;
 (async()=>{
  if(SB_URL.startsWith("PASTE")){app.innerHTML=`<div class="wrap"><h1>Almost there</h1><p class="m">Paste your Supabase URL and key at the top of index.html.</p></div>`;return}
  const{data:{session}}=await db.auth.getSession();S.user=session?.user||null;
- if(S.user)await load();render();initPush();
- setInterval(async()=>{if(S.user&&S.room&&!S.sheet&&S.view=="home"&&stats(S.user.id,CUR).b){await load();render()}else if(S.user&&!S.room&&S.pending){await load();render()}},20000);
+ const cached=S.user&&useCache();if(cached)render();
+ if(S.user){const ok=await load();if(!ok&&!cached){app.innerHTML=`<div class="wrap">${LOGO(64)}<h1 style="margin-top:12px">No connection</h1><p class="m">Could not reach the server.</p><button class="btn" onclick="location.reload()">Try again</button></div>`;setInterval(()=>{if(!document.hidden)location.reload()},15000);return}}
+ render();initPush();checkUpd();
+ setInterval(()=>{if(!document.hidden)refresh()},10000);
+ document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh()});
+ window.addEventListener("online",()=>refresh());
 })();
 </script></body></html>
